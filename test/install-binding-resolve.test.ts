@@ -1,0 +1,61 @@
+import assert from "node:assert/strict";
+import {
+  resolveRepoInstallBinding,
+  saveRepoInstallBinding,
+} from "../src/lib/github-app/install-flow-store";
+
+function test(name: string, fn: () => void | Promise<void>) {
+  return Promise.resolve()
+    .then(fn)
+    .then(() => console.log(`  ✓ ${name}`))
+    .catch((err) => {
+      console.error(`  ✗ ${name}`);
+      throw err;
+    });
+}
+
+console.log("install-binding-resolve");
+
+void test("falls back to installation-scoped binding when session key differs", async () => {
+  await saveRepoInstallBinding({
+    sessionKey: "old-ip:session-a",
+    installationId: 42,
+    installationOwner: "Pirthviraj",
+    installationOwnerType: "User",
+    repositoryFullName: "Pirthviraj/agentPass",
+    setupAction: "update",
+    authorizedAt: new Date().toISOString(),
+  });
+
+  const resolved = await resolveRepoInstallBinding({
+    sessionKey: "new-ip:session-b",
+    installationId: 42,
+    repositoryFullName: "Pirthviraj/agentPass",
+  });
+
+  assert.equal(resolved?.installationId, 42);
+  assert.equal(resolved?.repositoryFullName, "Pirthviraj/agentPass");
+})
+  .then(() =>
+    test("resolves legacy ip-prefixed binding via browser session id", async () => {
+      await saveRepoInstallBinding({
+        sessionKey: "198.51.100.2:legacy-browser-id",
+        installationId: 77,
+        installationOwner: "Pirthviraj",
+        installationOwnerType: "User",
+        repositoryFullName: "Pirthviraj/agentPass",
+        authorizedAt: new Date().toISOString(),
+      });
+
+      const resolved = await resolveRepoInstallBinding({
+        sessionKey: "browser:legacy-browser-id",
+        installationId: 77,
+        repositoryFullName: "Pirthviraj/agentPass",
+      });
+
+      assert.equal(resolved?.installationId, 77);
+    })
+  )
+  .then(() => {
+    console.log("install-binding-resolve: all passed");
+  });

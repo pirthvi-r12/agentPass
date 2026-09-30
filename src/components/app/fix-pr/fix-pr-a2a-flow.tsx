@@ -1,0 +1,667 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/design-system/panel";
+import { FeedbackBanner } from "@/components/app/ui/feedback-banner";
+import { OkxEscrowPanel } from "@/components/wallet/okx-escrow-panel";
+import {
+  PrePaymentCleanupPreview,
+  selectionBlocksPayment,
+} from "@/components/app/fix-pr/pre-payment-cleanup-preview";
+import { CustomerPathSelector } from "@/components/wallet/customer-path-selector";
+import { useWallet } from "@/components/wallet/wallet-provider";
+import type { FindingsPayload } from "@/lib/findings/types";
+import {
+  approveWorkflowDelivery,
+  createWorkflowA2ATask,
+  fetchWorkflowA2ATask,
+  fundOkxEscrowTask,
+  type WorkflowA2ATask,
+  type WorkflowQuote,
+} from "@/lib/workflow/client";
+import { flattenFindings } from "@/lib/findings/client";
+import { isActionableFinding } from "@/lib/findings/actionability-signals";
+import { getCanonicalOkxIdentityPublic } from "@/lib/okx/identity-public";
+import {
+  isWorkflowTaskFailure,
+  isWorkflowTaskTerminal,
+  workflowFailureGuidance,
+  workflowTaskStatusLabel,
+} from "@/lib/workflow/task-status-ui";
+import {
+  formatBaselineInvalidBanner,
+  parseBaselineInvalidUi,
+  type BaselineInvalidUi,
+} from "@/lib/workflow/baseline-invalid-ui";
+import { isKnownBaselineInvalidCommit } from "@/lib/workflow/known-invalid-commits";
+import { exactChargeLabelFromMicro } from "@/lib/pricing/exact-amount";
+import { evaluateControlledDeliverySelection } from "@/lib/cleanup/controlled-delivery-scope";
+import {
+  deliveryFailureRecovery,
+  deliveryProgressSteps,
+  deliveryUiPhase,
+} from "@/lib/workflow/delivery-progress";
+import {
+  findingFileName,
+  plainLanguageTitle,
+} from "@/lib/findings/plain-language";
+import {
+  loadPersistedSession,
+  savePersistedSession,
+} from "@/lib/session/persist-session";
+
+interface FixPrA2AFlowProps {
+  repoUrl: string;
+  branch: string;
+  findings: FindingsPayload;
+  selectedFindingIds: string[];
+  scopeReviewed: boolean;
+  a2aTask: WorkflowA2ATask | null;
+  onScopeReviewed: () => void;
+  onTaskUpdate: (task: WorkflowA2ATask | null) => void;
+}
+
+export function FixPrA2AFlow({
+  repoUrl,
+  branch,
+  findings,
+  selectedFindingIds,
+  scopeReviewed,
+  a2aTask,
+  onScopeReviewed,
+  onTaskUpdate,
+}: FixPrA2AFlowProps) {
+  const [quote, setQuote] = useState<WorkflowQuote | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [baselineInvalid, setBaselineInvalid] = useState<BaselineInvalidUi | null>(null);
+  const { setPaymentState, setCustomerMode } = useWallet();
+  const okxIdentity = getCanonicalOkxIdentityPublic();
+
+  useEffect(() => {
+    setCustomerMode("okx_marketplace");
+  }, [setCustomerMode]);
+
+  const repository = `${findings.repo.owner}/${findings.repo.name}`;
+  const commitSha = findings.repo.commitSha ?? "";
+  const selectedSafe = useMemo(
+    () =>
+      flattenFindings(findings).filter(
+        (f) => selectedFindingIds.includes(f.id) && isActionableFinding(f)
+      ),
+    [findings, selectedFindingIds]
+  );
+
+  const controlledGate = useMemo(
+    () => evaluateControlledDeliverySelection(selectedSafe.flatMap((f) => f.files)),
+    [selectedSafe]
+  );
+  const paymentBlocked = selectionBlocksPayment(selectedSafe);
+  // Client bundles only see NEXT_PUBLIC_* unless inlined at build time.
+  const deploymentEnv =
+    typeof process !== "undefined"
+      ? process.env.NEXT_PUBLIC_VERCEL_ENV ||
+        process.env.NEXT_PUBLIC_DEPLOYMENT_ENV ||
+        "unknown"
+      : "unknown";
+  const isPreviewDeployment = deploymentEnv === "preview";
+  const isProductionDeployment = deploymentEnv === "production";
+  // Client banner mirrors server dry-run: anything that is not Production is non-live.
+  const previewDryRunUi = !isProductionDeployment;
+  const [previewSimulationNote, setPreviewSimulationNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!a2aTask?.taskId) return;
+    void fetchWorkflowA2ATask(a2aTask.taskId)
+      .then(({ task, quote: q }) => {
+        onTaskUpdate(task);
+        if (q) setQuote(q);
+      })
+      .catch(() => {
+        /* best-effort hydrate */
+      });
+  }, [a2aTask?.taskId, onTaskUpdate]);
+
+  useEffect(() => {
+    if (!a2aTask?.taskId) return;
+    if (isWorkflowTaskTerminal(a2aTask)) return;
+
+    const poll = async () => {
+      try {
+        const { task, quote: q } = await fetchWorkflowA2ATask(a2aTask.taskId);
+        onTaskUpdate(task);
+        if (q) setQuote(q);
+      } catch {
+        /* polling best-effort */
+      }
+    };
+
+    void poll();
+    const timer = setInterval(() => void poll(), 4000);
+    return () => clearInterval(timer);
+  }, [a2aTask?.taskId, a2aTask?.status, onTaskUpdate]);
+
+  const startQuote = useCallback(async () => {
+    if (!commitSha || selectedSafe.length === 0) return;
+    setLoading(true);
+    setError(null);
+    setBaselineInvalid(null);
+    try {
+      onScopeReviewed();
+      const { task, quote: q } = await createWorkflowA2ATask({
+        repoUrl,
+        branch,
+        scanId: findings.scanId,
+        commitSha,
+        findingIds: selectedSafe.map((f) => f.id),
+      });
+      onTaskUpdate(task);
+      setQuote(q);
+      const stored = loadPersistedSession();
+      if (stored && q) {
+        savePersistedSession({ ...stored, quoteId: q.quoteId, a2aTaskId: task.taskId });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to prepare quote.";
+      setError(message);
+      const parsed = parseBaselineInvalidUi({
+        message,
+        commitSha,
+        repository: { owner: findings.repo.owner, name: findings.repo.name },
+      });
+      if (parsed) setBaselineInvalid(parsed);
+    } finally {
+      setLoading(false);
+    }
+  }, [branch, commitSha, findings.scanId, onScopeReviewed, onTaskUpdate, repoUrl, selectedSafe]);
+
+  const fundEscrow = useCallback(
+    async (input: {
+      buyerWallet: string;
+      escrowReference: string;
+      okxAuthorizationReference?: string;
+    }) => {
+      if (!quote || !a2aTask?.taskId) return;
+      if (paymentBlocked) {
+        throw new Error(
+          controlledGate.message ||
+            "Escrow funding is blocked until the selected cleanup passes the pre-payment preview gate."
+        );
+      }
+      setLoading(true);
+      setError(null);
+      setPaymentState("payment_pending");
+      try {
+        const funded = await fundOkxEscrowTask({
+          taskId: a2aTask.taskId,
+          escrowReference: input.escrowReference,
+          buyerWallet: input.buyerWallet,
+          okxAuthorizationReference: input.okxAuthorizationReference,
+        });
+        onTaskUpdate(funded);
+        setPaymentState("execution_started");
+        const refreshed = await fetchWorkflowA2ATask(funded.taskId);
+        onTaskUpdate(refreshed.task);
+        if (refreshed.quote) setQuote(refreshed.quote);
+      } catch (err) {
+        setPaymentState("failed");
+        setError(err instanceof Error ? err.message : "OKX escrow funding failed.");
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      a2aTask?.taskId,
+      controlledGate.message,
+      onTaskUpdate,
+      paymentBlocked,
+      quote,
+      setPaymentState,
+    ]
+  );
+
+  const retryCleanup = useCallback(() => {
+    onTaskUpdate(null);
+    setQuote(null);
+    setError(null);
+    setBaselineInvalid(null);
+  }, [onTaskUpdate]);
+
+  const approveProposedChanges = useCallback(async () => {
+    if (!a2aTask?.taskId || a2aTask.status !== "awaiting_approval") return;
+    setLoading(true);
+    setError(null);
+    try {
+      const approved = await approveWorkflowDelivery(a2aTask.taskId);
+      onTaskUpdate(approved);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not approve the proposed changes.");
+    } finally {
+      setLoading(false);
+    }
+  }, [a2aTask?.status, a2aTask?.taskId, onTaskUpdate]);
+
+  const taskBaselineInvalid = useMemo(() => {
+    if (!a2aTask?.error) return null;
+    return parseBaselineInvalidUi({
+      message: a2aTask.error,
+      commitSha,
+      repository: { owner: findings.repo.owner, name: findings.repo.name },
+    });
+  }, [a2aTask?.error, commitSha, findings.repo.name, findings.repo.owner]);
+
+  const pinnedBaselineInvalid = useMemo(() => {
+    if (!commitSha || !isKnownBaselineInvalidCommit(commitSha)) return null;
+    return parseBaselineInvalidUi({
+      commitSha,
+      repository: { owner: findings.repo.owner, name: findings.repo.name },
+    });
+  }, [commitSha, findings.repo.name, findings.repo.owner]);
+
+  const showBaselineBlock = baselineInvalid ?? taskBaselineInvalid ?? pinnedBaselineInvalid;
+  const quoteExpired =
+    Boolean(quote?.expiresAt) && new Date(quote!.expiresAt!).getTime() <= Date.now();
+  const hideRetryCleanup = Boolean(showBaselineBlock?.hideRetry);
+  const hideQuoteButton = Boolean(showBaselineBlock?.hideQuoteButton);
+
+  const executing =
+    Boolean(a2aTask) &&
+    !isWorkflowTaskTerminal(a2aTask) &&
+    a2aTask!.status !== "awaiting_payment" &&
+    a2aTask!.status !== "awaiting_approval";
+
+  return (
+    <div className="space-y-4">
+      <ol className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <li>1. Connect repository</li>
+        <li>2. Scan repository</li>
+        <li>3. Select suggested files</li>
+        <li>4. Review exact cleanup</li>
+        <li>5. Authorize A2A {okxIdentity.a2aServiceId}</li>
+        <li>6. Fund OKX escrow</li>
+        <li>7. Cleanup &amp; verify</li>
+        <li>8. Review PR &amp; accept</li>
+        <li>9. OKX releases payment</li>
+      </ol>
+      {!a2aTask && <CustomerPathSelector />}
+      <Panel variant="elevated" padding="md">
+        {(previewDryRunUi || isProductionDeployment) && (
+          <div
+            className={`mb-4 rounded-md border p-3 text-sm ${
+              previewDryRunUi
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-50"
+                : "border-destructive/40 bg-destructive/10 text-destructive"
+            }`}
+          >
+            <p className="font-medium">
+              {previewDryRunUi
+                ? "PREVIEW — NO REAL PAYMENT OR REPOSITORY WRITE"
+                : "PRODUCTION environment"}
+            </p>
+            <p className="mt-1 text-xs">
+              {previewDryRunUi
+                ? "Server-enforced dry-run: real payment authorization, write-token minting, cleanup dispatch, and GitHub mutation are blocked. Use Simulate authorization for UI validation only."
+                : "This deployment can authorize real USDT and create real repository branches/PRs after payment. Do not treat it as a dry-run."}
+            </p>
+          </div>
+        )}
+        {previewSimulationNote && (
+          <FeedbackBanner variant="info" message={previewSimulationNote} className="mb-3" />
+        )}
+
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-muted-foreground">Repository</dt>
+            <dd className="font-mono">{repository}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Source commit</dt>
+            <dd className="font-mono">{commitSha ? `${commitSha.slice(0, 12)}…` : "—"}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-muted-foreground">Selected cleanup</dt>
+            <dd>
+              {selectedSafe.length === 0 ? (
+                <span className="text-destructive">
+                  No safe cleanup selected. Go back to Findings and select a file.
+                </span>
+              ) : (
+                <ul className="mt-1 space-y-1">
+                  {selectedSafe.map((f) => (
+                    <li key={f.id} className="text-sm">
+                      <span className="font-medium text-foreground">{plainLanguageTitle(f)}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {findingFileName(f)} · {f.files[0]}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+          </div>
+        </dl>
+
+        {selectedSafe.length > 0 && (
+          <PrePaymentCleanupPreview
+            findings={selectedSafe}
+            pinnedCommit={commitSha}
+            repository={repository}
+          />
+        )}
+
+        <div className="mt-4 rounded-md border border-border/50 bg-card/40 p-3 text-sm text-muted-foreground">
+          <p className="mb-1 font-medium text-foreground">Delivery includes</p>
+          <ul className="list-inside list-disc space-y-1">
+            <li>Isolated branch</li>
+            <li>Bounded changes to selected scope only</li>
+            <li>Verification before pull request</li>
+            <li>Signed delivery receipt (ASP 5283)</li>
+          </ul>
+        </div>
+
+        {quote && (
+          <dl className="mt-4 grid gap-2 rounded-md border border-electric/20 bg-electric/5 p-3 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Price</dt>
+              <dd className="font-medium">
+                {exactChargeLabelFromMicro(quote.amountMicro, quote.currency || "USDT")}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Network</dt>
+              <dd>X Layer · USDT</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Payment type</dt>
+              <dd>OKX A2A escrow · service {okxIdentity.a2aServiceId}</dd>
+            </div>
+            {quote.expiresAt && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Quote expires</dt>
+                <dd className="text-xs">{new Date(quote.expiresAt).toLocaleString()}</dd>
+              </div>
+            )}
+            <details className="mt-1 text-xs text-muted-foreground">
+              <summary className="cursor-pointer text-electric">Advanced payment details</summary>
+              <dl className="mt-2 grid gap-1 font-mono">
+                <div className="flex justify-between gap-2">
+                  <dt>Atomic amount</dt>
+                  <dd>{quote.amountMicro}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>Recipient</dt>
+                  <dd className="truncate">{quote.recipient}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>Quote ID</dt>
+                  <dd className="truncate">{quote.quoteId}</dd>
+                </div>
+              </dl>
+            </details>
+          </dl>
+        )}
+
+        {a2aTask && (
+          <div className="mt-4 space-y-3 rounded-md border border-border/50 bg-card/40 p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">
+                {workflowTaskStatusLabel(a2aTask.status)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {deliveryUiPhase({
+                  githubConnected: true,
+                  hasQuote: Boolean(quote),
+                  task: a2aTask,
+                  preparingTask: loading && !a2aTask,
+                }).replaceAll("_", " ")}
+              </p>
+            </div>
+
+            {(executing ||
+              ["funded", "generating_changes", "validating_patch", "verifying", "creating_pull_request"].includes(
+                a2aTask.status
+              )) && (
+              <ol className="space-y-1.5 rounded-md border border-border/40 bg-background/40 p-3 text-xs">
+                {deliveryProgressSteps(a2aTask).map((step) => (
+                  <li
+                    key={step.id}
+                    className={
+                      step.done
+                        ? "text-signal"
+                        : step.active
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {step.done ? "✓ " : step.active ? "→ " : "· "}
+                    {step.label}
+                    {step.active && executing ? (
+                      <Loader2 className="ml-2 inline h-3 w-3 animate-spin" />
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {executing && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>
+                  RepoDiet is working on your selected files. This can take a few minutes — you can
+                  refresh; progress is saved.
+                </span>
+              </div>
+            )}
+
+            {(() => {
+              const recovery = deliveryFailureRecovery(a2aTask);
+              if (!recovery) return null;
+              return (
+                <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                  <p className="font-medium text-destructive">What failed</p>
+                  <p className="text-xs text-muted-foreground">{recovery.whatFailed}</p>
+                  <ul className="list-inside list-disc text-xs text-muted-foreground">
+                    <li>Payment confirmed: {recovery.paymentConfirmed ? "Yes" : "No"}</li>
+                    <li>
+                      Repository files changed on main:{" "}
+                      {recovery.repositoryFilesChanged ? "Yes" : "No (only a PR branch if created)"}
+                    </li>
+                    <li>Branch or PR exists: {recovery.branchOrPrExists ? "Yes" : "No"}</li>
+                    <li>Safe to retry without paying again: {recovery.retrySafe ? "Yes" : "No"}</li>
+                  </ul>
+                  <p className="text-xs text-foreground">{recovery.nextStep}</p>
+                </div>
+              );
+            })()}
+
+            {a2aTask.status === "awaiting_approval" && (
+              <div className="space-y-3 rounded-md border border-electric/25 bg-electric/5 p-3">
+                <div>
+                  <p className="font-medium text-foreground">Review the proposed cleanup before RepoDiet opens the pull request</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    RepoDiet prepared {a2aTask.approval?.changes?.length ?? 0} bounded change
+                    {(a2aTask.approval?.changes?.length ?? 0) === 1 ? "" : "s"}. Nothing is merged automatically.
+                  </p>
+                </div>
+                <Button onClick={() => void approveProposedChanges()} disabled={loading}>
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve changes and create pull request"}
+                </Button>
+              </div>
+            )}
+            {isWorkflowTaskFailure(a2aTask) && (
+              <FeedbackBanner
+                variant="error"
+                message={
+                  taskBaselineInvalid
+                    ? formatBaselineInvalidBanner(taskBaselineInvalid)
+                    : (a2aTask.error ?? workflowFailureGuidance(a2aTask))
+                }
+              />
+            )}
+            {a2aTask.pullRequest?.url && (
+              <div className="space-y-4 rounded-md border border-signal/30 bg-signal/5 p-4">
+                <div>
+                  <p className="text-base font-semibold text-signal">Your cleanup pull request is ready</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Review the changed files and GitHub checks. Merge only when the result matches your expectations.
+                  </p>
+                </div>
+                <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-muted-foreground">Repository</dt>
+                    <dd className="font-mono text-xs">{repository}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Pull request</dt>
+                    <dd className="font-mono text-xs">#{a2aTask.pullRequest.number ?? "Not available"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Source branch</dt>
+                    <dd className="font-mono text-xs">{a2aTask.pullRequest.branch ?? "Not available"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Target branch</dt>
+                    <dd className="font-mono text-xs">{findings.repo.branch}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Changed files</dt>
+                    <dd>{a2aTask.approval?.changes?.length ?? "Not available"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Verification</dt>
+                    <dd>{a2aTask.verification?.status ?? a2aTask.prDelivery?.deliveryState ?? "Not verified"}</dd>
+                  </div>
+                </dl>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild>
+                    <a href={a2aTask.pullRequest.url} target="_blank" rel="noreferrer">
+                      Review Pull Request
+                    </a>
+                  </Button>
+                  <Button asChild variant="secondary">
+                    <Link href="/app?tab=verify">Review &amp; Accept</Link>
+                  </Button>
+                </div>
+              </div>
+            )}
+            {a2aTask.status === "completed" && a2aTask.receipt && (
+              <dl className="mt-2 grid gap-1 rounded-md border border-border/40 bg-background/40 p-2 text-xs">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Receipt</dt>
+                  <dd className="font-mono">
+                    {String(
+                      (a2aTask.receipt as { receiptId?: string }).receiptId ??
+                        (a2aTask.receipt as { id?: string }).id ??
+                        "—"
+                    )}
+                  </dd>
+                </div>
+                {(a2aTask.receipt as { hash?: string }).hash && (
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Receipt hash</dt>
+                    <dd className="truncate font-mono">
+                      {String((a2aTask.receipt as { hash?: string }).hash)}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
+</div>
+        )}
+
+        {showBaselineBlock && (
+          <div className="mt-3 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+            <p className="font-medium text-foreground">{showBaselineBlock.title}</p>
+            <dl className="grid gap-1 text-xs">
+              <div>
+                <dt className="text-muted-foreground">Source commit</dt>
+                <dd className="font-mono">{showBaselineBlock.sourceCommit}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Failed check</dt>
+                <dd className="font-mono">{showBaselineBlock.failedCheck}</dd>
+              </div>
+              {showBaselineBlock.errorLocation && (
+                <div>
+                  <dt className="text-muted-foreground">First actionable error</dt>
+                  <dd className="font-mono">{showBaselineBlock.errorLocation}</dd>
+                </div>
+              )}
+              {showBaselineBlock.firstActionableError && (
+                <div>
+                  <dt className="text-muted-foreground">Diagnostic</dt>
+                  <dd>{showBaselineBlock.firstActionableError}</dd>
+                </div>
+              )}
+              <div>
+                <dt className="text-muted-foreground">Classification</dt>
+                <dd className="font-mono">{showBaselineBlock.classification}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">RepoDiet-selected cleanup caused this</dt>
+                <dd>{showBaselineBlock.causedByCleanup ? "Yes" : "No"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Required action</dt>
+                <dd>{showBaselineBlock.action}</dd>
+              </div>
+            </dl>
+            <p className="text-xs text-muted-foreground">{showBaselineBlock.scanGuidance}</p>
+          </div>
+        )}
+
+        {error && !showBaselineBlock && <FeedbackBanner variant="error" message={error} className="mt-3" />}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {(!quote || quoteExpired) && !hideQuoteButton && (
+            <Button onClick={startQuote} disabled={loading || selectedSafe.length === 0}>
+              {loading ? (
+                <Loader2 className="animate-spin" />
+              ) : quoteExpired ? (
+                "Generate fresh OKX quote"
+              ) : scopeReviewed ? (
+                "Refresh OKX A2A quote"
+              ) : (
+                "Prepare OKX A2A cleanup task"
+              )}
+            </Button>
+          )}
+          {quote && !quoteExpired && a2aTask?.status === "awaiting_payment" && !hideQuoteButton && (
+            <OkxEscrowPanel
+              quote={quote}
+              taskId={a2aTask.taskId}
+              loading={loading}
+              authorizationBlocked={paymentBlocked}
+              authorizationBlockReason={controlledGate.message}
+              previewDryRun={previewDryRunUi}
+              onSimulateAuthorization={() => {
+                setPreviewSimulationNote(
+                  "Preview simulation only — no OKX escrow funding, no write token, no worker dispatch, no GitHub mutation."
+                );
+              }}
+              onFundEscrow={fundEscrow}
+            />
+          )}
+          {isWorkflowTaskFailure(a2aTask) && !hideRetryCleanup && (
+            <Button onClick={retryCleanup}>Start a new cleanup attempt</Button>
+          )}
+          {showBaselineBlock ? (
+            <>
+              <Button asChild>
+                <Link href="/app?tab=scan">Back to Scan</Link>
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" asChild>
+              <Link href="/app?tab=findings">Back to findings</Link>
+            </Button>
+          )}
+        </div>
+      </Panel>
+    </div>
+  );
+}

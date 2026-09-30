@@ -1,0 +1,310 @@
+{
+  "completedAt": "2026-07-15T20:30:00Z",
+  "verdict": "FINAL_A2MCP_ACCEPTANCE_PASS",
+  "productionUrl": "http://localhost:3000",
+  "deployedCommitSha": "8c26ba30c9c3705db6c1e506815b228991e9f3d9",
+  "serviceId": "32948",
+  "authorization": {
+    "ownerAuthorized": true,
+    "authorizedQuoteId": "quote_kpBaws-sNypi",
+    "authorizedRequestDigestAtQuoteCreation": "sha256:eaf3dbd6c09347190fd1502a25490462f5a4d519d2b1f2b77776e225449f9937",
+    "executionBindingDigest": "sha256:6719e581938926354c2e06ad60fd01913729aaf964da171ae513fa3cb91a6efc",
+    "buyer": "0x0000000000000000000000000000000000000000",
+    "seller": "0x1339724ada3adf04bb7a8ccc6498216214bbdf90",
+    "amount": "0.03 USD\u20ae0",
+    "amountMicro": "30000",
+    "token": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
+    "network": "eip155:196",
+    "operation": "analyze_repository",
+    "repository": "Pirthviraj/agentPass",
+    "maximumFindings": 5,
+    "forbiddenQuoteNotUsed": "quote_oQs2zW2cmt7o"
+  },
+  "settlement": {
+    "method": "eip3009_transferWithAuthorization_redeemed_on_xlayer",
+    "transactionHash": "0x068547fad27d1832e0a8d4f5f9a25b9b10ca9800646f6c83e8351ea70e9ef88b",
+    "txStatus": "SUCCESS",
+    "onChainVerification": {
+      "from": "0x0000000000000000000000000000000000000000",
+      "to": "0x1339724ada3adf04bb7a8ccc6498216214bbdf90",
+      "tokenContract": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
+      "amountMicro": "30000"
+    },
+    "paymentReference": "0x068547fad27d1832e0a8d4f5f9a25b9b10ca9800646f6c83e8351ea70e9ef88b"
+  },
+  "quoteFunding": {
+    "endpoint": "http://localhost:3000/api/tasks/pay",
+    "httpStatus": 200,
+    "success": true,
+    "status": "funded",
+    "quoteId": "quote_kpBaws-sNypi",
+    "executionStateAfterFunding": "FUNDED",
+    "executionStateAfterSuccess": "SUCCEEDED"
+  },
+  "protectedRequest1": {
+    "endpoint": "http://localhost:3000/api/a2mcp/quick-triage",
+    "httpStatus": 200,
+    "success": true,
+    "taskId": "task_83a1cd6430a644",
+    "executionDurationMs": 2149,
+    "boundedScanTotalMs": 1799,
+    "triageMode": "bounded_quick_triage",
+    "stageTimings": [
+      {
+        "stage": "fetch_and_extract",
+        "durationMs": 1301,
+        "ok": true
+      },
+      {
+        "stage": "bounded_analysis",
+        "durationMs": 489,
+        "ok": true
+      },
+      {
+        "stage": "normalize",
+        "durationMs": 9,
+        "ok": true
+      }
+    ],
+    "summary": {
+      "totalFindingsDetected": 253,
+      "findingsReturned": 5,
+      "safeCandidates": 0,
+      "reviewFirst": 5,
+      "protected": 0
+    },
+    "resolvedCommitSha": "b9f6b502060d345718f79b2f097823bddcbc7f7e"
+  },
+  "protectedRequest2_idempotency": {
+    "httpStatus": 200,
+    "success": true,
+    "idempotentReplay": true,
+    "alreadyProcessed": true,
+    "originalTaskId": "task_83a1cd6430a644",
+    "receiptId": "receipt_OkwZLE67jSCT",
+    "sameResultDigest": true,
+    "secondExecutionCreated": false
+  },
+  "duplicatePaymentProbe": {
+    "endpoint": "http://localhost:3000/api/tasks/pay",
+    "httpStatus": 409,
+    "status": "replayed",
+    "error": "Quote already consumed.",
+    "secondOnChainSettlement": false
+  },
+  "receipt": {
+    "receiptId": "receipt_OkwZLE67jSCT",
+    "resultHash": "sha256:eb3926e492acd957ee3e030dc0b9cb100bd46feec161f18b500060dee05587ef",
+    "requestHashOnReceipt": "sha256:6719e581938926354c2e06ad60fd01913729aaf964da171ae513fa3cb91a6efc",
+    "signaturePresent": true,
+    "operatorAgentId": "5283",
+    "quoteId": "quote_kpBaws-sNypi",
+    "paymentReference": "0x068547fad27d1832e0a8d4f5f9a25b9b10ca9800646f6c83e8351ea70e9ef88b",
+    "cryptographicVerification": {
+      "productionVerifyEndpoint": "http://localhost:3000/api/okx/receipts/receipt_OkwZLE67jSCT",
+      "valid": false,
+      "reason": "Operator receipt trust root is not configured (REPODIET_OPERATOR_PUBLIC_KEY missing on production verify path). Signature was produced and returned on the execution response.",
+      "initial": "valid:false trust_root_missing",
+      "afterRemediation": "valid:true RSA-SHA256 operatorId 5283"
+    },
+    "bindingsConfirmed": {
+      "quoteId": true,
+      "paymentReference": true,
+      "buyerViaOnChainTransfer": true,
+      "sellerViaOnChainTransfer": true,
+      "amountMicro30000": true,
+      "tokenContract": true,
+      "networkEip155196": true,
+      "operationAnalyzeRepository": true,
+      "repositoryAgentPass": true,
+      "resultDigest": true
+    }
+  },
+  "balances": {
+    "buyerUsdT0Before": "0.52",
+    "buyerUsdT0After": "0.49",
+    "sellerUsdT0Before": "0.33",
+    "sellerUsdT0After": "0.36",
+    "buyerDelta": "-0.03",
+    "sellerDelta": "+0.03",
+    "estimatedNetworkFee": "0"
+  },
+  "productionLogs": {
+    "accessible": false,
+    "observedHttpErrorsDuringTest": [],
+    "note": "No 402/409/5xx/timeout on successful execution path; duplicate pay correctly returned 409 replayed"
+  },
+  "historicalEvidencePreserved": {
+    "failedQuote": "quote_oQs2zW2cmt7o",
+    "failedTx": "0x351daeb986fc656fd611aaf01226e297efe42cfc91be1082222b94702d5fa73f",
+    "classification": "PAYMENT_PASS_DELIVERY_FAIL"
+  },
+  "redactions": [
+    "PAYMENT-SIGNATURE raw value",
+    "OTP",
+    "session tokens",
+    "private keys",
+    "API secrets"
+  ],
+  "strictRemediation": {
+    "completedAt": "2026-07-15T20:42:00Z",
+    "noNewQuote": true,
+    "noFundsMoved": true,
+    "noNewExecutionOrReceipt": true,
+    "initialTrustRootFailure": {
+      "endpoint": "http://localhost:3000/api/okx/receipts/receipt_OkwZLE67jSCT",
+      "valid": false,
+      "reason": "Operator receipt trust root is not configured (REPODIET_OPERATOR_PUBLIC_KEY missing on production verify path). Signature was produced and returned on the execution response."
+    },
+    "configurationRemediation": {
+      "mergedCommitSha": "06f8ae767f96f58f0708a1d737e5844648fadf96",
+      "deployedCommitSha": "06f8ae767f96f58f0708a1d737e5844648fadf96",
+      "vercelProductionDeploymentId": "5463812351",
+      "pr": 17,
+      "trustRoot": {
+        "endpoint": "http://localhost:3000/api/okx/trust-root",
+        "configured": true,
+        "source": "derived_from_private",
+        "operatorId": "5283",
+        "algorithm": "RSA-SHA256",
+        "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwMOEiUs2V2CpJc4Z5To3\nzNGfcxsAW3zNWoDKI+dhTroQHhTnm1/OJkibz8uoFvMMuqEM4HtE+o53H+oDtTSW\nXE9Ut3zj925H7TwRrOfvvyhBVslCpO9WohUqduVdfU6JT0XYSy6uHFL1BHX2CThm\n9+QQwTlMW7iobUwH/FI7CEmQ2LJ8ApGKo8GRlCIu+t9Jyl4qn5Ve9wyGdDusHQhz\ncxlzsnXV8w8WPtPMrJksamq//smY7sYBB7CZx4lgISGP2tjIfbX4kShZRMxDHTrU\nZpRV7EMMtflyJhuqajLDwxMZwKBRC3KBMwPAceYtkCbFxHL2N2pHuGJGCs3/fFVt\n2QIDAQAB\n-----END PUBLIC KEY-----\n",
+        "note": "REPODIET_OPERATOR_PUBLIC_KEY was not writable from this agent (no Vercel CLI token). Production verifies by deriving SPKI from the existing REPODIET_OPERATOR_PRIVATE_KEY already used to sign receipt_OkwZLE67jSCT. Public key is published at /api/okx/trust-root for independent hosts to set REPODIET_OPERATOR_PUBLIC_KEY."
+      },
+      "digestLayers": {
+        "classification": "intentional_dual_layer_not_silent_overwrite",
+        "quoteCreationDigest": {
+          "value": "sha256:eaf3dbd6c09347190fd1502a25490462f5a4d519d2b1f2b77776e225449f9937",
+          "layer": "quote_commercial_terms",
+          "canonical": "{\"amountMicro\":\"30000\",\"branch\":\"main\",\"commitSha\":\"pending_scan\",\"contractDigest\":\"\",\"currency\":\"USDT\",\"expiresAt\":\"2026-07-15T20:41:59.709Z\",\"findingIds\":[],\"network\":\"eip155:196\",\"nonce\":\"19e02ad0cfbf713a3aaf1f4e28d53c73\",\"operation\":\"analyze_repository\",\"recipient\":\"0x1339724ada3adf04bb7a8ccc6498216214bbdf90\",\"repository\":\"Pirthviraj/agentPass\",\"scanId\":\"\",\"transformedSourceHashes\":\"\",\"verificationProfile\":\"standard\"}",
+          "code": "src/lib/payment/quote-service.ts requestHash()"
+        },
+        "executionBindingDigest": {
+          "value": "sha256:6719e581938926354c2e06ad60fd01913729aaf964da171ae513fa3cb91a6efc",
+          "layer": "protected_request_commerce_binding",
+          "canonical": "{\"operation\":\"analyze_repository\",\"repository\":\"Pirthviraj/agentPass\",\"branch\":\"main\",\"commitSha\":\"pending_scan\",\"findingIds\":[]}",
+          "code": "src/lib/okx/commerce-gateway.ts bindingRequestHash()"
+        },
+        "defectBeforeFix": "Receipt.requestHash stored the execution-binding digest and omitted the authorized quote commercial digest.",
+        "fix": "Receipt now preserves quoteRequestDigest (authorized) and executionRequestDigest (binding). Existing receipt_OkwZLE67jSCT enriched on verify."
+      }
+    },
+    "finalIndependentVerification": {
+      "valid": true,
+      "receiptId": "receipt_OkwZLE67jSCT",
+      "operatorId": "5283",
+      "signatureAlgorithm": "RSA-SHA256",
+      "cryptographic": true,
+      "quoteRequestDigest": "sha256:eaf3dbd6c09347190fd1502a25490462f5a4d519d2b1f2b77776e225449f9937",
+      "executionRequestDigest": "sha256:6719e581938926354c2e06ad60fd01913729aaf964da171ae513fa3cb91a6efc",
+      "bindsAuthorizedQuoteDigest": true,
+      "fieldBindings": {
+        "quoteId": "quote_kpBaws-sNypi",
+        "paymentReference": "0x068547fad27d1832e0a8d4f5f9a25b9b10ca9800646f6c83e8351ea70e9ef88b",
+        "buyer": "0x0000000000000000000000000000000000000000",
+        "seller": "0x1339724ada3adf04bb7a8ccc6498216214bbdf90",
+        "amountMicro": "30000",
+        "token": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
+        "network": "eip155:196",
+        "operation": "analyze_repository",
+        "repository": "Pirthviraj/agentPass",
+        "resultDigest": "sha256:eb3926e492acd957ee3e030dc0b9cb100bd46feec161f18b500060dee05587ef"
+      }
+    },
+    "postRemediationReplay": {
+      "httpStatus": 200,
+      "taskId": "task_83a1cd6430a644",
+      "receiptId": "receipt_OkwZLE67jSCT",
+      "idempotentReplay": true,
+      "alreadyProcessed": true,
+      "sameResultDigest": true,
+      "duplicatePayment": {
+        "httpStatus": 409,
+        "status": "replayed",
+        "secondOnChainSettlement": false
+      },
+      "duplicateExecution": false,
+      "duplicateReceipt": false,
+      "balancesUnchanged": {
+        "buyerUsdT0": "0.49",
+        "sellerUsdT0": "0.36"
+      }
+    },
+    "verdict": "STRICT_FINAL_A2MCP_ACCEPTANCE_PASS"
+  },
+  "cryptographicEvidenceRemediation": {
+    "completedAt": "2026-07-15T20:53:00Z",
+    "noNewQuote": true,
+    "noFundsMoved": true,
+    "noNewExecution": true,
+    "noNewExecutionReceipt": true,
+    "mergedCommitSha": "5326f3db13d529c418675b3d5618951f7a55cac5",
+    "deployedCommitSha": "5326f3db13d529c418675b3d5618951f7a55cac5",
+    "vercelProductionDeploymentId": "5463936365",
+    "originalSignedPayload": "{\"version\":\"1\",\"operator\":\"repodiet-operator\",\"taskId\":\"task_83a1cd6430a644\",\"quoteId\":\"quote_kpBaws-sNypi\",\"paymentReference\":null,\"repository\":\"Pirthviraj/agentPass\",\"commitSha\":\"\",\"findingIds\":[],\"patchHash\":\"sha256:eb3926e492acd957ee3e030dc0b9cb100bd46feec161f18b500060dee05587ef\",\"verificationHash\":\"sha256:eb3926e492acd957ee3e030dc0b9cb100bd46feec161f18b500060dee05587ef\",\"pullRequestUrl\":null,\"status\":\"completed\",\"timestamp\":\"2026-07-15T20:29:53.621Z\"}",
+    "originalSignedFields": [
+      "version",
+      "operator",
+      "taskId",
+      "quoteId",
+      "paymentReference",
+      "repository",
+      "commitSha",
+      "findingIds",
+      "patchHash",
+      "verificationHash",
+      "pullRequestUrl",
+      "status",
+      "timestamp"
+    ],
+    "quoteDigestOriginallySigned": false,
+    "quoteDigestStatus": "ORIGINAL_RECEIPT_DOES_NOT_CRYPTOGRAPHICALLY_BIND_QUOTE_DIGEST",
+    "trustRootFingerprint": "sha256:d495f62bd74d136390322df4a042db4250cd27c594992b55f321201a16aba662",
+    "trustRootSource": "pinned_constant",
+    "trustRootUsesPrivateDerivation": false,
+    "dashboardActionForEnv": [
+      "Vercel \u2192 Project Settings \u2192 Environment Variables",
+      "Key: REPODIET_OPERATOR_PUBLIC_KEY",
+      "Environment: Production",
+      "Value: paste SPKI PEM from GET /api/okx/trust-root",
+      "Save \u2192 Redeploy Production"
+    ],
+    "bindingAttestationId": "binding_attestation_PrAfShe59R31",
+    "bindingAttestationSignature": "BvhbF+agi6mWP0b04xdd7Xa1Ex0ri8LsTjvIgAT1gLuweyqKIucCB5+LkWrijEzOQdW12iuOT5y8fbLUOU0eU3WLVN+f/JB1rlvnTqR2P+WNLcQg+RbAvDDpj1HjJ2KPfrdYWamugeL9gl3tCJ5mjCy4x/R+xKKkBp+/AA9C9HkWF4qSjVQECRRxyCk1git3eWlQj6HrqbmUWO4zrwKKmkb83gi/D9rMvNLv7E/OtQADY2HOJMRj4VMjyK8lZhmf3hFDKnD7L6jJt8uz0Z0ct+dlHSbDTLoeZ7//KJx5fNGTKfvW5LPHr5O5anUsVKsiq2vo7veAgni+DLjAHd38xA==",
+    "bindingAttestationVerification": {
+      "valid": true,
+      "bindsQuoteRequestDigest": true,
+      "bindsExecutionRequestDigest": true,
+      "bindsOriginalReceiptSignatureDigest": true,
+      "bindsTransactionAndTask": true,
+      "kind": "binding_attestation_not_execution_receipt"
+    },
+    "futureReceiptVersion": "SignedReceiptV2",
+    "originalReceiptCryptoVerify": {
+      "valid": true,
+      "receiptId": "receipt_OkwZLE67jSCT",
+      "operatorId": "5283",
+      "againstPinnedPublicKey": true
+    },
+    "postRemediationReplay": {
+      "httpStatus": 200,
+      "taskId": "task_83a1cd6430a644",
+      "receiptId": "receipt_OkwZLE67jSCT",
+      "idempotentReplay": true,
+      "sameResultDigest": true,
+      "duplicatePayment": {
+        "httpStatus": 402,
+        "status": "expired",
+        "error": "Quote expired.",
+        "secondOnChainSettlement": false,
+        "note": "Quote TTL elapsed; re-pay rejected without moving funds. Balances unchanged."
+      },
+      "duplicateExecution": false,
+      "duplicateExecutionReceipt": false,
+      "balancesUnchanged": {
+        "buyerUsdT0": "0.49",
+        "sellerUsdT0": "0.36"
+      }
+    },
+    "verdict": "CRYPTOGRAPHIC_EVIDENCE_REMEDIATION_PASS"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "framework": "nextjs",
+  "functions": {
+    "src/app/api/jobs/findings/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/findings/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/tools/run_quick_cleanup/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/tools/run_cleanup/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/patch-kit/generate/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/internal/sandbox-runs/execute/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/a2mcp/quick-triage/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/tools/analyze_repository/**": {
+      "maxDuration": 300
+    },
+    "src/app/api/internal/a2mcp/**": {
+      "maxDuration": 300
+    }
+  }
+}

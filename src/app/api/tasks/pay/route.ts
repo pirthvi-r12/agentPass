@@ -1,0 +1,149 @@
+import { NextResponse } from "next/server";
+import { rejectInternalTestBuyerForCustomer } from "@/lib/wallet/test-buyer-guard";
+import {
+  getBoundQuote,
+  paymentProofFromRequest,
+  signTestPaymentPayload,
+  verifyAndFundQuote,
+} from "@/lib/payment";
+import { isA2aTestPriceQuote } from "@/lib/payment/a2a-test-price";
+import { getA2ATask } from "@/lib/a2a/task-store";
+import { buildSessionKey } from "@/lib/github-app/browser-session";
+import { assertDirectTaskOwner } from "@/lib/workflow/task-access";
+import { isInternalTestBuyerAllowed } from "@/lib/wallet/test-buyer-guard";
+import {
+  buildPreviewDryRunDenial,
+  isPreviewPaymentBlocked,
+} from "@/lib/deployment/preview-dry-run";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request) {
+  try {
+    if (isPreviewPaymentBlocked()) {
+      return NextResponse.json(buildPreviewDryRunDenial(), { status: 403 });
+    }
+
+    const body = (await request.json()) as Record<string, unknown>;
+    let proof = paymentProofFromRequest(request, body);
+
+    if (!proof) {
+      return NextResponse.json({ success: false, error: "quoteId is required." }, { status: 400 });
+    }
+
+    const quote = await getBoundQuote(proof.quoteId);
+    if (!quote) {
+      return NextResponse.json({ success: false, error: "Quote not found." }, { status: 404 });
+    }
+
+    // Reject when the client-displayed amount differs from the signed quote.
+    // (Do this before copying quote fields onto the proof.)
+    const clientAmountMicro =
+      typeof body.amountMicro === "string" && body.amountMicro.length > 0
+        ? body.amountMicro
+        : null;
+    if (clientAmountMicro !== null && clientAmountMicro !== quote.amountMicro) {
+      return NextResponse.json(
+        {
+          success: false,
+          status: "wrong_amount",
+          error: "Displayed payment amount does not match the signed quote.",
+        },
+        { status: 402 }
+      );
+    }
+
+    if (quote.a2aTaskId) {
+      const task = await getA2ATask(quote.a2aTaskId);
+      if (task) {
+        if (
+          task.input.purchaseChannel === "okx_marketplace" ||
+          task.type === "repository.cleanup_pr" ||
+          task.type === "repository.verified_cleanup"
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                "Fix & PR uses OKX A2A escrow (service 32947). Fund escrow via POST /api/okx/a2a/tasks/{taskId}/fund-escrow — do not send USDT directly to RepoDiet.",
+              paymentModel: "escrow",
+              serviceId: "32947",
+            },
+            { status: 422 }
+          );
+        }
+        try {
+          assertDirectTaskOwner(task, await buildSessionKey(request));
+        } catch {
+          return NextResponse.json({ success: false, error: "Task access denied." }, { status: 403 });
+        }
+      }
+    }
+
+    proof = {
+      ...proof,
+      amountMicro: quote.amountMicro,
+      currency: quote.currency,
+      network: quote.network,
+      recipient: quote.recipient,
+      nonce: quote.nonce,
+    };
+
+    const buyerGuard = rejectInternalTestBuyerForCustomer({ payer: proof.payer });
+    if (!buyerGuard.ok) {
+      return NextResponse.json({ success: false, error: buyerGuard.reason }, { status: 403 });
+    }
+
+    if (
+      !proof.paymentSignature &&
+      process.env.REPODIET_X402_TEST_SECRET &&
+      isInternalTestBuyerAllowed()
+    ) {
+      proof.paymentSignature =
+        signTestPaymentPayload({
+          quoteId: proof.quoteId,
+          paymentReference: proof.paymentReference,
+          payer: proof.payer,
+          amountMicro: proof.amountMicro,
+          nonce: proof.nonce,
+          requestHash: quote.requestHash,
+        }) ?? undefined;
+    }
+
+    if (!proof.paymentSignature && isA2aTestPriceQuote(quote) && isInternalTestBuyerAllowed()) {
+      proof.paymentSignature =
+        signTestPaymentPayload({
+          quoteId: proof.quoteId,
+          paymentReference: proof.paymentReference,
+          payer: proof.payer,
+          amountMicro: proof.amountMicro,
+          nonce: proof.nonce,
+          requestHash: quote.requestHash,
+        }) ?? undefined;
+    }
+
+    const result = await verifyAndFundQuote(proof);
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          status: result.status,
+          error: result.reason,
+          existingTaskId: result.existingTaskId,
+        },
+        { status: result.status === "replayed" ? 409 : 402 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      status: result.status,
+      quote: result.quote,
+      existingTaskId: result.existingTaskId,
+      lifecycleStatus: result.quote?.lifecycleStatus,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Payment verification failed.";
+    return NextResponse.json({ success: false, error: message }, { status: 422 });
+  }
+}

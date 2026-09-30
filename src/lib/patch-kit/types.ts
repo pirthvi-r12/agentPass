@@ -1,0 +1,215 @@
+import type { FindingsPayload } from "@/lib/findings/types";
+import type { FrameworkName, PackageManager } from "@/lib/scanner/types";
+import type { CandidateAuditRecord, BlockerCode } from "@/lib/execution/candidate-lifecycle";
+
+export interface PatchKitGenerateBody {
+  repoUrl: string;
+  branch?: string;
+  findings?: FindingsPayload;
+  selectedFindingIds?: string[];
+  scanId?: string;
+  projectRoot?: string;
+  /** Paid A2A execution — full verification, scoped to selected findings. */
+  paidExecution?: boolean;
+}
+
+export interface PatchKitRepo {
+  owner: string;
+  name: string;
+  branch: string;
+}
+
+export interface TransformerResult {
+  findingId: string;
+  transformer: string;
+  status: "generated" | "skipped" | "failed";
+  reason: string;
+  filePath?: string;
+  originalHash?: string;
+  resultingDiff?: string;
+}
+
+export interface PatchKitSummary {
+  safeDeleteCandidates: number;
+  /** @deprecated Use eligibleFindings */
+  supportedFixesDetected?: number;
+  /** @deprecated Use eligibleFindings */
+  transformerCompatible: number;
+  /** @deprecated Use transformedFindings */
+  dryRunPassed: number;
+  detectedFindings?: number;
+  preflightCheckedFindings?: number;
+  eligibleFindings?: number;
+  ineligibleFindings?: number;
+  executedFindings?: number;
+  /** @deprecated Use executedFindings */
+  attemptedTransformations?: number;
+  noopTransformations?: number;
+  failedTransformations?: number;
+  failedExecutions?: number;
+  notAttempted?: number;
+  /** File-level operations (edit/delete/add), not finding count */
+  generatedChanges: number;
+  generatedFileOperations?: number;
+  noOpExecutions?: number;
+  validatedChanges: number;
+  validatedFileOperations?: number;
+  verifiedChanges: number;
+  verifiedFileOperations?: number;
+  deliveredFileOperations?: number;
+  /** Retained transformer attempts before per-file consolidation for patch delivery */
+  retainedFixAttempts?: number;
+  filesEdited: number;
+  filesDeleted: number;
+  filesAdded: number;
+  rawReviewFindings: number;
+  reviewFirstItems: number;
+  doNotTouchItems: number;
+  packageSuggestions: number;
+  patchLines: number;
+  regressionChecks: number;
+  bundleFileCount: number;
+  patchValidationStatus?: "passed" | "failed" | "blocked" | "skipped" | "not_generated" | "pending_sandbox";
+  contentValidatedOperations?: number;
+  gitValidatedOperations?: number;
+  deletedPaths?: string[];
+  changedPaths?: string[];
+  blockerBreakdown?: Partial<Record<BlockerCode, number>>;
+  blockerSummary?: string;
+  detectedSignals?: number;
+  proofLadder?: import("@/lib/execution/proof-ladder").ProofLadderCounts;
+}
+
+export interface PatchKitArtifacts {
+  reportMd: string;
+  cleanupPatch: string;
+  packageCleanupMd: string;
+  regressionChecklistMd: string;
+  cursorPromptMd: string;
+  findingsJson: FindingsPayload;
+  patchkitSummaryJson: string;
+}
+
+export interface ChangeManifestEntry {
+  findingId: string;
+  transformationType: string;
+  filePath: string;
+  operation: "edit" | "delete" | "add";
+  linesAdded?: number;
+  linesRemoved?: number;
+}
+
+export interface PatchKitPayload {
+  id: string;
+  scanId?: string;
+  repo: PatchKitRepo;
+  summary: PatchKitSummary;
+  patchValidation?: {
+    status: "passed" | "failed" | "blocked" | "skipped" | "not_generated" | "pending_sandbox";
+    error?: string;
+    userMessage?: string;
+    executionPlane?: "vercel_sandbox";
+    sandboxRunId?: string;
+    workflowRunId?: string;
+    baseCommitSha?: string;
+    patchHash?: string;
+    failingPath?: string;
+    failingHunk?: string;
+    gitStderr?: string;
+    patchGenerationMethod?: "git-cli" | "pure-js";
+    gitCliAvailable?: boolean;
+    contentIntegrityValidation?: { status: string; failureCode?: string; error?: string };
+    gitPatchValidation?: { status: string; failureCode?: string; error?: string };
+    attempt?: import("./canonical-patch").PatchValidationAttempt;
+    contentIntegrityAttempt?: import("./canonical-patch").PatchValidationAttempt;
+    validatedPaths?: string[];
+    unexpectedPaths?: string[];
+    missingPaths?: string[];
+    protectedPaths?: string[];
+    appliedTreeHash?: string;
+    persistedPatchPath?: string;
+  };
+  changeOperations?: import("./canonical-patch").ChangeOperation[];
+  transformerResults?: TransformerResult[];
+  candidateAudits?: CandidateAuditRecord[];
+  artifacts: PatchKitArtifacts;
+  downloadUrl: string;
+  zipBase64?: string;
+  validatedEdits?: Array<{ path: string; content: string; baselineContentHash?: string }>;
+  changeManifest?: ChangeManifestEntry[];
+  cleanupProof?: import("@/lib/execution/proof-ladder").CleanupProof;
+  repositoryVerification?: {
+    status: "verified" | "blocked" | "failed" | "not_run" | "regression_failed" | "baseline_blocked" | "improved_but_baseline_invalid";
+    outcome?: string;
+    failureCode?: string;
+    error?: string;
+    installAttempts?: import("@/lib/execution/workspace-install").InstallAttemptRecord[];
+    checks?: import("@/lib/jobs/types").VerifyCheckResult[];
+    baseline?: unknown;
+    patched?: unknown;
+  };
+  cleanupRunSummary?: import("./cleanup-summary").CleanupRunSummary;
+  deletionProofs?: import("./safe-delete-discovery").SafeDeleteProof[];
+  sandboxRunId?: string;
+  workflowRunId?: string;
+  /** Public repos use the same ZIP/git path as Scan — sandbox verification does not require App grant. */
+  repositoryIsPublic?: boolean;
+  remediationPlan?: import("./remediation-class").RemediationPlan;
+  verificationGates?: import("./verification-gates").VerificationGateReport;
+  prEvidenceReportMd?: string;
+  postPatchVerification?: import("@/lib/verification/post-patch-verification").PostPatchVerificationReport;
+  apiSurfaceDiff?: import("@/lib/verification/api-surface").ApiSurfaceDiff;
+  importGraphDiff?: import("@/lib/verification/import-graph-diff").ImportGraphDiff;
+  yellowDraftPatches?: import("./yellow-draft-patches").YellowDraftPatch[];
+  sarifBaseline?: import("@/lib/findings/sarif-export").SarifLog;
+  /** @deprecated use sandboxRunId */
+  workerJobId?: string;
+}
+
+export interface PatchKitRepoContext {
+  framework: FrameworkName;
+  packageManager: PackageManager;
+  routes: string[];
+  apiRoutes: string[];
+  hasTypecheck: boolean;
+  hasLint: boolean;
+  hasBuild: boolean;
+}
+
+export interface ClassifiedItem {
+  path: string;
+  reason: string;
+  findingId?: string;
+  findingType?: string;
+}
+
+export interface ClassifiedBuckets {
+  safeDelete: ClassifiedItem[];
+  reviewFirst: ClassifiedItem[];
+  doNotTouch: ClassifiedItem[];
+}
+
+export const PatchKitGenerateBodySchema = {
+  parse(input: unknown): PatchKitGenerateBody {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid request body.");
+    }
+    const body = input as Record<string, unknown>;
+    if (typeof body.repoUrl !== "string" || !body.repoUrl.trim()) {
+      throw new Error("repoUrl is required.");
+    }
+    return {
+      repoUrl: body.repoUrl.trim(),
+      branch: typeof body.branch === "string" ? body.branch.trim() : undefined,
+      findings:
+        body.findings && typeof body.findings === "object"
+          ? (body.findings as FindingsPayload)
+          : undefined,
+      selectedFindingIds: Array.isArray(body.selectedFindingIds)
+        ? body.selectedFindingIds.filter((id): id is string => typeof id === "string")
+        : undefined,
+      scanId: typeof body.scanId === "string" ? body.scanId : undefined,
+      projectRoot: typeof body.projectRoot === "string" ? body.projectRoot : undefined,
+    };
+  },
+};
